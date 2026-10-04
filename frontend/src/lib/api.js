@@ -1,5 +1,6 @@
 // Backend + WebAuthn helpers (ported from the vanilla app).
 import { t } from './i18n-core.js'
+import { SB_BACKEND, sbApi } from './supabase-backend.js'
 import { MOBILE } from './mobile.js'
 import { appBase } from './app-base.js'
 
@@ -39,6 +40,7 @@ const failure = (message, code, status) => Object.assign(new Error(message), { c
 
 export async function api(path, opts) {
   const { timeout, ...init } = opts || {}
+  if (SB_BACKEND) return sbApi(path, init)   // R+ fork: Supabase answers the API (lib/supabase-backend.js)
   // A phone with no server to talk to: local mode, or a pairing that is gone. There is no
   // relative URL to fall back on here — the WebView's own origin is Capacitor's local asset
   // server, which answers ANY path, PUT included, with index.html and a 200, so a push "landed"

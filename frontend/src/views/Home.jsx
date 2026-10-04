@@ -130,6 +130,20 @@ export default function Home() {
       </div>
     )}
 
+    {/* R+ fork: guided stretch routine */}
+    <div className="card tappable" style={{ cursor: 'pointer' }} {...tappable(() => nav('/stretch'))}>
+      <div className="row between">
+        <div className="row" style={{ gap: 9 }}>
+          <span className="lrow-i" style={{ background: 'var(--orange)' }}><Icon name="play" /></span>
+          <div>
+            <div className="lbl2">约19分钟</div>
+            <div className="ttl">拉伸</div>
+          </div>
+        </div>
+        <Icon name="chevronRight" className="chev" />
+      </div>
+    </div>
+
     {!S.routines.length && !S.active && (
       <div className="card">
         <div className="row" style={{ gap: 10, marginBottom: 6 }}>

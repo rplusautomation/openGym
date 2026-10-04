@@ -1,0 +1,8 @@
+-- R+ fork: single-user openGym backend on Supabase. Applied to project fwoddovntdsdunnzpnsb as
+-- migration "opengym_state_backend". The frontend talks to these functions through
+-- frontend/src/lib/supabase-backend.js, which mimics GET/PUT /api/data of api/server.js.
+-- og_state holds the whole openGym document; RLS is on with no policies, so the table itself is
+-- unreachable with the anon key and only the functions below can read or write it.
+-- A trigger on the old `bodyweight` table copies every weigh-in (Telegram bot, old app) in.
+-- See the migration in Supabase for the full function bodies (og_get, og_rev, og_put,
+-- og_add_weight, og_bodyweight_trigger).

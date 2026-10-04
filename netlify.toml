@@ -1,0 +1,20 @@
+# R+ fork: static frontend on Netlify, Supabase as backend (frontend/src/lib/supabase-backend.js)
+[build]
+  base = "frontend"
+  command = "npm ci && npx vite build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  VITE_SB_URL = "https://fwoddovntdsdunnzpnsb.supabase.co"
+  # Publishable (anon) key: it ships in the client bundle by design; og_state is reachable only
+  # through the og_* functions.
+  VITE_SB_KEY = "sb_publishable_w9QTk7NMi6XZ3TeAJyFL-w_6Qq2GlKS"
+  VITE_SB_USER = "Ranger"
+  VITE_IMG_BASE = "https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@7455efae41b330c265e7cd4b78dfa848e7ce5ebd/images/"
+  VITE_GIF_BASE = "https://cdn.jsdelivr.net/gh/hasaneyldrm/exercises-dataset@7455efae41b330c265e7cd4b78dfa848e7ce5ebd/videos/"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
