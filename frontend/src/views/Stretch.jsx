@@ -38,11 +38,11 @@ const STEPS = [
   { name: 'Break', s: 5, desc: '过渡休息' },
   { name: 'Fuß an Fuß', s: 60, desc: '脚对脚' },
   { name: 'Break', s: 5, desc: '过渡休息' },
-  { name: 'Liegen', s: 60, desc: '躺下' },
-  { name: 'Break', s: 5, desc: '过渡休息' },
   { name: 'Stehen rechts', s: 60, desc: '右侧站立' },
   { name: 'Break', s: 5, desc: '过渡休息' },
-  { name: 'Stehen links', s: 60, desc: '左侧站立' }
+  { name: 'Stehen links', s: 60, desc: '左侧站立' },
+  { name: 'Break', s: 5, desc: '过渡休息' },
+  { name: '俯卧伸展', s: 60, desc: '趴下,双手撑起上身' }
 ]
 const TOTAL = STEPS.reduce((n, x) => n + x.s, 0)
 
@@ -58,7 +58,9 @@ function speak(text) {
   try {
     if (!window.speechSynthesis) return
     window.speechSynthesis.cancel()
-    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text))
+    const u = new SpeechSynthesisUtterance(text)
+    if (/[\u4e00-\u9fff]/.test(text)) u.lang = 'zh-CN'   // Chinese step names need a Chinese voice
+    window.speechSynthesis.speak(u)
   } catch { /* no speech */ }
 }
 
