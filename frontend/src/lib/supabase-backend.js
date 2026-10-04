@@ -29,6 +29,12 @@ async function rpc(fn, args) {
 function body(init) {
   try { return JSON.parse((init && init.body) || '{}') || {} } catch { return {} }
 }
+// Rest alerts are booked as "cancel the old one, schedule the new one" in the same instant, two
+// requests that can overtake each other on the way. A strictly increasing number, taken when the
+// app makes the call, lets the database drop whichever arrives out of date (og_push_seq).
+let lastSeq = 0
+const nextSeq = () => (lastSeq = Math.max(lastSeq + 1, Date.now() * 1000))
+
 function checked(res) {
   const { status, ...rest } = res || {}
   if (status && status !== 200) throw fail(status, rest.error || 'failed', rest)
@@ -67,9 +73,9 @@ export async function sbApi(path, init) {
       const b = body(init)
       const n = typeof b.seconds === 'number' || typeof b.seconds === 'string' ? Number(b.seconds) : NaN
       if (!(n >= 1)) throw fail(400, 'seconds required')
-      return checked(await rpc('og_push_schedule', { p_device: b.deviceId || null, p_seconds: Math.round(n), p_kind: 'rest' }))
+      return checked(await rpc('og_push_schedule', { p_device: b.deviceId || null, p_seconds: Math.round(n), p_kind: 'rest', p_seq: nextSeq() }))
     }
-    case 'POST /api/push/rest-timer/cancel': return rpc('og_push_cancel', { p_device: body(init).deviceId || null })
+    case 'POST /api/push/rest-timer/cancel': return rpc('og_push_cancel', { p_device: body(init).deviceId || null, p_seq: nextSeq() })
     default: throw fail(404, 'not available on this instance')
   }
 }
