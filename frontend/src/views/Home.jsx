@@ -58,7 +58,15 @@ export default function Home() {
   const wThisWeek = S.workouts.filter(w => weekKey(w.d, ws) === weekKey(todayISO(), ws)).length
   // Days scheduled, not routines — a combined day counts as 1, matching wThisWeek (one w).
   const plannedPerWeek = Object.values(S.week).filter(ids => ids?.length).length
-  const bwPoints = S.bodyweight.slice(-30).map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
+  // R+ fork: each weigh-in carries the average of the 7 days ending on it, drawn as a second line
+  // and shown in the point's tooltip.
+  const avg7At = d => {
+    const from = isoOf(new Date(new Date(d + 'T12:00:00').getTime() - 7 * 86400000))
+    const xs = S.bodyweight.filter(b => b.d > from && b.d <= d).map(b => b.w)
+    return xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length * 10) / 10 : null
+  }
+  const bwPoints = S.bodyweight.slice(-30).map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d, note: '7日均值 ' + fmtNum(avg7At(b.d)) }))
+  const bwAvg = bwPoints.map(p => ({ t: p.t, y: avg7At(p.d) })).filter(p => p.y != null)
 
   // today's session shown right under the week strip
   const onToday = () => { if (S.active) nav('/workout'); else if (todayRoutines.length) startFlow(effectiveRoutineIds(S, todayISO())); else dayOverrideSheet(todayISO()) }
@@ -196,9 +204,13 @@ export default function Home() {
             <span>{t('Goal')} {fmtNum(S.targetW)} {S.unit} · {Math.abs(S.targetW - bw.w) < 0.05 ? t('reached!') : t(S.targetW > bw.w ? '{0} to gain' : '{0} to lose', fmtNum(Math.abs(S.targetW - bw.w)) + ' ' + S.unit)}</span>
           </div>
         )}
-        <div className="chart" style={{ marginTop: 8 }}><LineChart points={bwPoints} h={130} unit={S.unit} goal={S.targetW} /></div>
+        <div className="chart" style={{ marginTop: 8 }}><LineChart points={bwPoints} avg={bwAvg} h={130} unit={S.unit} goal={S.targetW} /></div>
         {/* every weigh-in, week by week with its average (Discord 'Weight') */}
-        <div className="row" style={{ justifyContent: 'flex-end', marginTop: 4 }}>
+        <div className="row" style={{ justifyContent: 'space-between', marginTop: 4 }}>
+          <div className="small row muted" style={{ gap: 10 }}>
+            <span className="row" style={{ gap: 4 }}><i style={{ width: 12, height: 3, borderRadius: 2, background: 'var(--acc)', display: 'inline-block' }} />每日</span>
+            <span className="row" style={{ gap: 4 }}><i style={{ width: 12, height: 3, borderRadius: 2, background: 'var(--orange)', display: 'inline-block' }} />7日均值</span>
+          </div>
           <Button size="sm" variant="ghost" trailingIcon="chevronRight" onClick={weighInsSheet}>{t('All weigh-ins')}</Button>
         </div>
       </> : <div className="muted small">{S.weighIn === false
