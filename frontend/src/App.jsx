@@ -34,6 +34,7 @@ import Workout from './views/Workout.jsx'
 import Stats from './views/Stats.jsx'
 import History from './views/History.jsx'
 import Stretch from './views/Stretch.jsx'   // R+ fork
+import QuickTimer from './components/QuickTimer.jsx'   // R+ fork
 import Library from './views/Library.jsx'
 import Muscles from './views/Muscles.jsx'
 import StructuralBalance from './views/StructuralBalance.jsx'
@@ -209,6 +210,7 @@ function Shell() {
       <SyncBanner />
       {/* The chat owns the bottom of the screen: its composer sits where the tabs would be. */}
       {loc.pathname !== '/coach' && <TabBar onStart={startFlow} />}
+      {authed && <QuickTimer />}
       <RestTimer />
       <Modals />
       <Toast />

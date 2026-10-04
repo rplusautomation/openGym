@@ -104,7 +104,10 @@ export default function Stretch() {
     setEnd(Date.now() + STEPS[i].s * 1000)
     speak(STEPS[i].name)
   }
-  const start = () => { audio(); setDone(false); go(0) }
+  // iOS mutes Web Audio on the ring/silent switch unless the page asks for 'playback' (iOS 17+).
+  // The routine is useless without its bell, so it asks for the whole session.
+  const playback = () => { try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch { /* older iOS */ } }
+  const start = () => { playback(); audio(); setDone(false); go(0) }
   const stop = () => { setIdx(null); setPaused(null); window.speechSynthesis?.cancel() }
 
   // tick: countdown voice in the last three seconds, bell and advance at zero
@@ -117,7 +120,7 @@ export default function Stretch() {
       if (left >= 1 && left <= 3 && ticked.current !== left) { ticked.current = left; audio(); speak(String(left)) }
       if (t >= end && !advancing) {
         advancing = true; clearInterval(id)
-        audio(); bell()
+        playback(); audio(); bell()
         try { navigator.vibrate && navigator.vibrate([200, 80, 200]) } catch { /* iOS */ }
         setTimeout(() => go(idx + 1), 1400)
       }
@@ -139,7 +142,7 @@ export default function Stretch() {
   useEffect(() => () => { try { wake.current && wake.current.release() } catch { /* gone */ } }, [])
 
   const pause = () => { setPaused(Math.max(0, end - Date.now())); window.speechSynthesis?.cancel() }
-  const resume = () => { audio(); setEnd(Date.now() + paused); setPaused(null) }
+  const resume = () => { playback(); audio(); setEnd(Date.now() + paused); setPaused(null) }
 
   const step = idx != null ? STEPS[idx] : null
   const left = step ? Math.max(0, Math.ceil((paused != null ? paused : end - now) / 1000)) : 0
