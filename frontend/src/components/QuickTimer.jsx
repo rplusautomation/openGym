@@ -4,7 +4,8 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
-import { chime, unlock, vibrate } from '../lib/sound.js'
+import { unlock, vibrate } from '../lib/sound.js'
+import { primeBell, ringBell } from '../lib/bell.js'
 import Icon from './Icon.jsx'
 
 const SECONDS = 90
@@ -22,7 +23,7 @@ export default function QuickTimer() {
       const t = Date.now(); setNow(t)
       if (t >= end) {
         clearInterval(id)
-        chime(sound !== false); vibrate([300, 100, 300])
+        if (sound !== false) ringBell(); vibrate([300, 100, 300])
         setRinging(true); setEnd(null)
         setTimeout(() => setRinging(false), 2500)
       }
@@ -36,7 +37,7 @@ export default function QuickTimer() {
   const label = end ? Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : ringing ? '0:00' : SECONDS + 's'
   const onTap = () => {
     if (end) { setEnd(null); return }
-    unlock(sound !== false); setRinging(false); setNow(Date.now()); setEnd(Date.now() + SECONDS * 1000)
+    unlock(sound !== false); primeBell(); setRinging(false); setNow(Date.now()); setEnd(Date.now() + SECONDS * 1000)
   }
 
   return (

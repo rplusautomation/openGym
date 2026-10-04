@@ -176,6 +176,20 @@ export default function Home() {
           )}
           <span className="dim small" style={{ marginInlineStart: 'auto' }}>{fmtDate(bw.d, true)}</span>
         </div>
+        {/* R+ fork: 7-day average against the 7 days before, the number that matters while bulking */}
+        {(() => {
+          const day = n => isoOf(new Date(Date.now() - n * 86400000))
+          const avg = (from, to) => { const xs = S.bodyweight.filter(b => b.d > from && b.d <= to).map(b => b.w); return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null }
+          const now7 = avg(day(7), day(0)), prev7 = avg(day(14), day(7))
+          if (now7 == null) return null
+          const d = prev7 == null ? null : Math.round((now7 - prev7) * 100) / 100
+          return (
+            <div className="small row" style={{ marginTop: 4, gap: 6 }}>
+              <span className="muted">7日均值</span><span style={{ fontWeight: 600 }}>{fmtNum(Math.round(now7 * 10) / 10)} {S.unit}</span>
+              {d != null && <span className="muted">· 较前7日 {d > 0 ? '+' : ''}{fmtNum(d)}</span>}
+            </div>
+          )
+        })()}
         {S.targetW && (
           <div className="small row" style={{ color: 'var(--yellow)', marginTop: 4, gap: 5 }}>
             <Icon name="target" style={{ fontSize: 13 }} />

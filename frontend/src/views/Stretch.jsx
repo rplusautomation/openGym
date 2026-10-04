@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
+import { primeBell, ringBell } from '../lib/bell.js'
 
 const STEPS = [
   { name: 'Get ready', s: 5, desc: '准备' },
@@ -53,31 +54,6 @@ function audio() {
   if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {})
   return ctx
 }
-// Spectrum taken from a real boxing-bell recording (2660 / 3965 / 7030 Hz), three quick strikes,
-// compressed and limited so it is loud without clipping a phone speaker.
-function bell() {
-  const c = audio(); if (!c) return
-  try {
-    const comp = c.createDynamicsCompressor()
-    comp.threshold.value = -18; comp.knee.value = 4; comp.ratio.value = 10; comp.attack.value = 0.001; comp.release.value = 0.15
-    const makeup = c.createGain(); makeup.gain.value = 2.6
-    const lim = c.createDynamicsCompressor()
-    lim.threshold.value = -3; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.001; lim.release.value = 0.1
-    comp.connect(makeup); makeup.connect(lim); lim.connect(c.destination)
-    const partials = [[2660, 1.4, 1.1], [3965, 0.9, 0.9], [7030, 0.55, 0.5]]
-    ;[0, 0.35, 0.7].forEach(t0 => {
-      const st = c.currentTime + t0
-      partials.forEach(([f, g0, dec]) => {
-        const o = c.createOscillator(), g = c.createGain()
-        o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(comp)
-        g.gain.setValueAtTime(0.0001, st)
-        g.gain.exponentialRampToValueAtTime(g0, st + 0.004)
-        g.gain.exponentialRampToValueAtTime(0.0001, st + dec)
-        o.start(st); o.stop(st + dec + 0.05)
-      })
-    })
-  } catch { /* no audio */ }
-}
 function speak(text) {
   try {
     if (!window.speechSynthesis) return
@@ -107,7 +83,7 @@ export default function Stretch() {
   // iOS mutes Web Audio on the ring/silent switch unless the page asks for 'playback' (iOS 17+).
   // The routine is useless without its bell, so it asks for the whole session.
   const playback = () => { try { if (navigator.audioSession) navigator.audioSession.type = 'playback' } catch { /* older iOS */ } }
-  const start = () => { playback(); audio(); setDone(false); go(0) }
+  const start = () => { primeBell(); playback(); audio(); setDone(false); go(0) }
   const stop = () => { setIdx(null); setPaused(null); window.speechSynthesis?.cancel() }
 
   // tick: countdown voice in the last three seconds, bell and advance at zero
@@ -120,7 +96,7 @@ export default function Stretch() {
       if (left >= 1 && left <= 3 && ticked.current !== left) { ticked.current = left; audio(); speak(String(left)) }
       if (t >= end && !advancing) {
         advancing = true; clearInterval(id)
-        playback(); audio(); bell()
+        ringBell()
         try { navigator.vibrate && navigator.vibrate([200, 80, 200]) } catch { /* iOS */ }
         setTimeout(() => go(idx + 1), 1400)
       }
@@ -142,7 +118,7 @@ export default function Stretch() {
   useEffect(() => () => { try { wake.current && wake.current.release() } catch { /* gone */ } }, [])
 
   const pause = () => { setPaused(Math.max(0, end - Date.now())); window.speechSynthesis?.cancel() }
-  const resume = () => { playback(); audio(); setEnd(Date.now() + paused); setPaused(null) }
+  const resume = () => { primeBell(); playback(); audio(); setEnd(Date.now() + paused); setPaused(null) }
 
   const step = idx != null ? STEPS[idx] : null
   const left = step ? Math.max(0, Math.ceil((paused != null ? paused : end - now) / 1000)) : 0

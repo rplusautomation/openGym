@@ -1,3 +1,4 @@
+import { primeBell, ringBell } from './bell.js'   // R+ fork
 // WebAudio beeps + haptics (ported from the vanilla app). `enabled` gates sound.
 //
 // iOS needs three things a desktop browser does not (#152, "flash but no beep"):
@@ -100,7 +101,8 @@ export const CHIME_PEAK = 0.9
 const CHIME = [[1319, 0.16, 0], [988, 0.16, 0.22], [1319, 0.5, 0.44]]
 export function chime(enabled) {
   if (!enabled) return
-  try { CHIME.forEach(([freq, dur, when]) => tone(freq, dur, when, { peak: CHIME_PEAK, hold: 0.6, bright: true })) } catch (e) { /* */ }
+  // R+ fork: the boxing bell through a media element, which the iPhone silent switch does not mute.
+  ringBell()
 }
 
 // Call from inside a tap. Gets the context created and running while the browser still counts
@@ -108,6 +110,7 @@ export function chime(enabled) {
 export function unlock(enabled) {
   if (!enabled) return
   try { wake(); sleepAfter(0) } catch (e) { /* */ }
+  primeBell()   // R+ fork
 }
 
 // Settings → "Play sounds when the phone is on silent". Offered only where it means something:
