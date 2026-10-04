@@ -101,3 +101,19 @@ export function ringBell() {
     const p = a.play(); if (p && p.catch) p.catch(() => { ringing = false })
   } catch { ringing = false }
 }
+
+// The rest timer starts from a set's checkbox, a tap that knows nothing about sound, so the
+// element is primed by the first tap anywhere in the app instead, and again by the first tap
+// after the app comes back from the background (iOS may have taken the audio session away).
+// Only once per stretch on screen: priming takes the audio session, which pauses other music.
+let primedThisVisit = false
+function primeOnTouch() {
+  if (primedThisVisit) return
+  primedThisVisit = true
+  primeBell()
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('touchend', primeOnTouch, true)
+  document.addEventListener('click', primeOnTouch, true)
+  document.addEventListener('visibilitychange', () => { if (document.hidden) primedThisVisit = false })
+}
