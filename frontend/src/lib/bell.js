@@ -9,8 +9,6 @@
 // later ring() reuses that element, swapping in the bell.
 const RATE = 22050
 let el = null
-let bellUrl = null
-let silentUrl = null
 
 function wavUrl(samples) {
   const n = samples.length
@@ -22,10 +20,15 @@ function wavUrl(samples) {
   v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true)
   str(36, 'data'); v.setUint32(40, n * 2, true)
   for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[i])) * 32767, true)
-  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }))
+  // A data: URL, not a blob: one: WebKit's media stack has a history of refusing blob URLs it
+  // cannot range-request, and this file is small enough (~100 kB) not to matter.
+  const bytes = new Uint8Array(buf)
+  let bin = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000))
+  return 'data:audio/wav;base64,' + btoa(bin)
 }
 
-function makeBell() {
+function makeBellSamples() {
   const len = Math.round(RATE * 1.9)
   const out = new Float32Array(len)
   const partials = [[2660, 1.0, 1.1], [3965, 0.65, 0.9], [7030, 0.4, 0.5]]
@@ -47,25 +50,45 @@ function makeBell() {
   peak = 0
   for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(out[i]))
   for (let i = 0; i < len; i++) out[i] = 0.98 * out[i] / peak
-  return wavUrl(out)
+  return out
 }
 
+// One file for everything: a short lead-in of silence, then the bell. iOS unlocks playback per
+// media element, and swapping `src` after the unlocking tap is exactly what it does not always
+// honour, so the element only ever holds this one file. prime() plays it from the tap and stops
+// inside the silence; ring() seeks past the silence and plays.
+const LEAD = 0.3
+let fileUrl = null
+let ringing = false
+
 function element() {
+  if (!fileUrl) {
+    const bell = makeBellSamples()
+    const lead = Math.round(LEAD * RATE)
+    const all = new Float32Array(lead + bell.length)
+    all.set(bell, lead)
+    fileUrl = wavUrl(all)
+  }
   if (!el) {
     el = new Audio()
     el.preload = 'auto'
     el.setAttribute('playsinline', '')
+    el.src = fileUrl
+    el.addEventListener('ended', () => { ringing = false })
   }
-  if (!bellUrl) { bellUrl = makeBell(); silentUrl = wavUrl(new Float32Array(Math.round(RATE * 0.05))) }
   return el
 }
 
-/** Call from inside a tap (the one that starts a timer). Silent. */
+/** Call from inside a tap (the one that starts a timer). Inaudible: stops inside the lead-in. */
 export function primeBell() {
   try {
     const a = element()
-    a.src = silentUrl
-    const p = a.play(); if (p && p.catch) p.catch(() => {})
+    if (ringing) return
+    a.currentTime = 0
+    const p = a.play()
+    const stop = () => { if (!ringing) { a.pause(); try { a.currentTime = 0 } catch { /* not loaded */ } } }
+    if (p && p.then) p.then(() => setTimeout(stop, 60)).catch(() => {})
+    else setTimeout(stop, 60)
   } catch { /* no audio */ }
 }
 
@@ -73,8 +96,8 @@ export function primeBell() {
 export function ringBell() {
   try {
     const a = element()
-    a.src = bellUrl
-    a.currentTime = 0
-    const p = a.play(); if (p && p.catch) p.catch(() => {})
-  } catch { /* no audio */ }
+    ringing = true
+    try { a.currentTime = LEAD - 0.02 } catch { /* metadata not loaded yet: play from the top */ }
+    const p = a.play(); if (p && p.catch) p.catch(() => { ringing = false })
+  } catch { ringing = false }
 }

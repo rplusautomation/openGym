@@ -1,7 +1,7 @@
 # R+ fork: static frontend on Netlify, Supabase as backend (frontend/src/lib/supabase-backend.js)
 [build]
   base = "frontend"
-  command = "npm ci && npx vite build"
+  command = "npm ci && APP_BUILD=$(echo $COMMIT_REF | cut -c1-7) npx vite build"
   publish = "dist"
 
 [build.environment]
