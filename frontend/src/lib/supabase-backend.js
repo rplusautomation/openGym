@@ -26,6 +26,15 @@ async function rpc(fn, args) {
   return body
 }
 
+function body(init) {
+  try { return JSON.parse((init && init.body) || '{}') || {} } catch { return {} }
+}
+function checked(res) {
+  const { status, ...rest } = res || {}
+  if (status && status !== 200) throw fail(status, rest.error || 'failed', rest)
+  return rest
+}
+
 export async function sbApi(path, init) {
   const method = ((init && init.method) || 'GET').toUpperCase()
   const route = method + ' ' + path.split('?')[0]
@@ -43,6 +52,24 @@ export async function sbApi(path, init) {
       return rest
     }
     case 'POST /api/logout': return { ok: true }
+    // Lock-screen alerts: the subscription and the pending alert live in Supabase; the og-push
+    // edge function, run by pg_cron while something is due, sends it (supabase/opengym.sql).
+    case 'GET /api/push/public-key': return rpc('og_push_key')
+    case 'POST /api/push/subscribe': {
+      const b = body(init)
+      return checked(await rpc('og_push_subscribe', { p_sub: b.subscription || null, p_device: b.deviceId || null }))
+    }
+    case 'GET /api/push/status':
+      return rpc('og_push_status', { p_endpoint: new URLSearchParams(path.split('?')[1] || '').get('endpoint') || '' })
+    case 'POST /api/push/unsubscribe': return rpc('og_push_unsubscribe', { p_endpoint: body(init).endpoint || '' })
+    case 'POST /api/push/test': return checked(await rpc('og_push_schedule', { p_device: null, p_seconds: 0, p_kind: 'test' }))
+    case 'POST /api/push/rest-timer': {
+      const b = body(init)
+      const n = typeof b.seconds === 'number' || typeof b.seconds === 'string' ? Number(b.seconds) : NaN
+      if (!(n >= 1)) throw fail(400, 'seconds required')
+      return checked(await rpc('og_push_schedule', { p_device: b.deviceId || null, p_seconds: Math.round(n), p_kind: 'rest' }))
+    }
+    case 'POST /api/push/rest-timer/cancel': return rpc('og_push_cancel', { p_device: body(init).deviceId || null })
     default: throw fail(404, 'not available on this instance')
   }
 }
