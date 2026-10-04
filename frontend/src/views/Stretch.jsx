@@ -42,7 +42,7 @@ const STEPS = [
   { name: 'Break', s: 5, desc: '过渡休息' },
   { name: 'Stehen links', s: 60, desc: '左侧站立' },
   { name: 'Break', s: 5, desc: '过渡休息' },
-  { name: '俯卧伸展', s: 60, desc: '趴下,双手撑起上身' }
+  { name: 'Prone Y-T-W', s: 60, desc: '俯卧,手臂依次摆成Y、T、W,每个姿势夹紧肩胛骨' }
 ]
 const TOTAL = STEPS.reduce((n, x) => n + x.s, 0)
 
