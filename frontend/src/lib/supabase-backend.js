@@ -41,6 +41,9 @@ function checked(res) {
   return rest
 }
 
+// Weekly trainer tips keyed by exercise id (see lib/coach-tips.js). Read-only.
+export const coachTips = () => rpc('og_coach_tips')
+
 export async function sbApi(path, init) {
   const method = ((init && init.method) || 'GET').toUpperCase()
   const route = method + ' ' + path.split('?')[0]
