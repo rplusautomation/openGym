@@ -10,6 +10,7 @@ import Icon from '../components/Icon.jsx'
 import { Button } from '../components/ui.jsx'
 import { tappable } from '../lib/use-sheet-keyboard.js'
 import { glyphOf } from '../lib/glyphs.js'
+import CoachDailyCard from '../components/CoachDailyCard.jsx'   // R+ fork
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
@@ -76,6 +77,8 @@ export default function Home() {
       <div><h1>{user ? t('Hi {0}', user.name) : 'openGym'}</h1><div className="sub">{today.toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' })}</div></div>
       <button className="iconbtn" onClick={() => nav('/settings')} aria-label={t('Settings')}><Icon name="gear" /></button>
     </div>
+
+    <CoachDailyCard />{/* R+ fork: today's coach check */}
 
     <div className="card">
       <div className="row between" style={{ marginBottom: 8 }}>

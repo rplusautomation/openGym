@@ -47,6 +47,8 @@ function checked(res) {
 
 // Weekly trainer tips keyed by exercise id (see lib/coach-tips.js). Read-only.
 export const coachTips = () => rpc('og_coach_tips')
+// Today's coach check (strap + gym + weight + food, run by pg_cron; see lib/coach-daily.js). Read-only.
+export const coachDaily = () => rpc('og_coach_daily')
 
 export async function sbApi(path, init) {
   const method = ((init && init.method) || 'GET').toUpperCase()
