@@ -35,6 +35,10 @@ function body(init) {
 let lastSeq = 0
 const nextSeq = () => (lastSeq = Math.max(lastSeq + 1, Date.now() * 1000))
 
+// Inside the NOOP iPhone app (R+ fork of NOOP) the rest end is a buzz on the WHOOP strap, not a
+// lock-screen push: the native side registers this handler and schedules the buzz.
+const strap = () => (typeof window !== 'undefined' && window.webkit?.messageHandlers?.rpaStrap) || null
+
 function checked(res) {
   const { status, ...rest } = res || {}
   if (status && status !== 200) throw fail(status, rest.error || 'failed', rest)
@@ -76,9 +80,12 @@ export async function sbApi(path, init) {
       const b = body(init)
       const n = typeof b.seconds === 'number' || typeof b.seconds === 'string' ? Number(b.seconds) : NaN
       if (!(n >= 1)) throw fail(400, 'seconds required')
+      if (strap()) { strap().postMessage({ type: 'rest', seconds: Math.round(n) }); return { ok: true } }
       return checked(await rpc('og_push_schedule', { p_device: b.deviceId || null, p_seconds: Math.round(n), p_kind: 'rest', p_seq: nextSeq() }))
     }
-    case 'POST /api/push/rest-timer/cancel': return rpc('og_push_cancel', { p_device: body(init).deviceId || null, p_seq: nextSeq() })
+    case 'POST /api/push/rest-timer/cancel':
+      if (strap()) { strap().postMessage({ type: 'cancel' }); return { ok: true } }
+      return rpc('og_push_cancel', { p_device: body(init).deviceId || null, p_seq: nextSeq() })
     default: throw fail(404, 'not available on this instance')
   }
 }
