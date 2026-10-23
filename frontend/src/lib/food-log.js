@@ -17,8 +17,7 @@ export const KINDS = [
 ]
 export const mealLabel = v => (MEALS.find(m => m.value === v) || { label: v === 'brunch' ? '早午餐' : v }).label
 
-// The meal a log made at this hour most likely is (his workday: oats in the car 10-12, shake 16:30,
-// dinner in the evening).
+// The meal a log made at this hour most likely is.
 export function defaultMeal(hour) {
   if (hour < 10) return 'breakfast'
   if (hour < 14) return 'lunch'
