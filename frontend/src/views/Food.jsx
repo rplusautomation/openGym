@@ -6,7 +6,7 @@
 // the form to correct it (any entry of the last 14 days, the coach's estimates included).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SB_BACKEND, foodAdd, foodUpdate, foodList, foodDelete, foodPhotoUpload } from '../lib/supabase-backend.js'
-import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode, scanFrame, itemsTotal, itemsText, searchFoods } from '../lib/food-log.js'
+import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode, scanFrame, itemsTotal, itemsText, searchFoods, nutrientsJson } from '../lib/food-log.js'
 import { todayISO, isoOf } from '../lib/format.js'
 import { Segmented, NumberField, TextField, TextArea, Button } from '../components/ui.jsx'
 import Icon from '../components/Icon.jsx'
@@ -52,8 +52,12 @@ function BarcodeScan({ onFound, onCancel }) {
 
 function blank() {
   const meal = defaultMeal(new Date().getHours())
-  return { date: todayISO(), meal, kind: defaultKind(meal), note: '', items: [], photos: [], kcal: null, protein: null, base: { kcal: null, protein: null } }
+  return { date: todayISO(), meal, kind: defaultKind(meal), note: '', items: [], photos: [], kcal: null, protein: null, base: {} }
 }
+
+// "碳水 80 g · 脂肪 12 g · 糖 4 g · 纤维 6 g · 盐 1.2 g" for whatever is known.
+const MACRO_LABEL = { carbs: '碳水', fat: '脂肪', sugar: '糖', fiber: '纤维', salt: '盐' }
+const macroLine = t => Object.keys(MACRO_LABEL).filter(k => t[k] != null).map(k => `${MACRO_LABEL[k]} ${t[k]} g`).join(' · ')
 
 // One scanned food: name, kcal per 100 g, portion buttons and grams, its own kcal.
 function FoodItem({ item, onGrams, onKcal, onRemove }) {
@@ -64,6 +68,7 @@ function FoodItem({ item, onGrams, onKcal, onRemove }) {
       <button className="iconbtn" aria-label="去掉" onClick={onRemove}><Icon name="xmark" /></button>
     </div>
     <div className="small muted">{p ? (p.kcal100 != null ? `${p.kcal100} kcal/100 g` : '数据库里没有热量') : '数据库里没有这个条码，热量自己填或者留空'}</div>
+    {(item.protein != null || macroLine(item)) && <div className="small muted">{[item.protein != null && `蛋白 ${item.protein} g`, macroLine(item)].filter(Boolean).join(' · ')}</div>}
     {p && p.kcal100 != null && <div className="chips nocap" style={{ marginTop: 8 }}>
       {p.packG && <button className={'chip nocap' + (item.grams === p.packG ? ' on' : '')} onClick={() => onGrams(p.packG)}>整包 {p.packG} g</button>}
       {p.packG && <button className={'chip nocap' + (item.grams === p.packG / 2 ? ' on' : '')} onClick={() => onGrams(p.packG / 2)}>半包</button>}
@@ -93,8 +98,7 @@ export default function Food() {
 
   function addProduct(prod, code) {
     const grams = prod && prod.kcal100 != null ? (prod.servingG || prod.packG || 100) : null
-    const p = portion(prod, grams)
-    const item = { key: Date.now() + Math.random(), barcode: code, product: prod, name: prod && prod.name, grams, kcal: p.kcal, protein: p.protein }
+    const item = { key: Date.now() + Math.random(), barcode: code, product: prod, name: prod && prod.name, grams, ...portion(prod, grams) }
     set(s => ({ items: [...s.items, item] }))
   }
   async function addCode(code) {
@@ -154,7 +158,7 @@ export default function Food() {
     reset()
     setEditing(r)
     setF({ date: r.date, meal: r.meal, kind: r.kind, note: r.entry || '', items: [], kcal: null, protein: null,
-      base: { kcal: r.est_kcal, protein: r.est_protein_g },
+      base: { kcal: r.est_kcal, protein: r.est_protein_g, ...Object.fromEntries(Object.entries(r.nutrients || {}).map(([k, v]) => [k.replace(/_g$/, ''), v])) },
       photos: (r.photo_urls || []).map(u => ({ preview: u, upload: Promise.resolve(u), saved: true })) })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -169,13 +173,14 @@ export default function Food() {
   const items = itemsTotal(f.items)
   const add = (a, b) => (a == null && b == null ? null : (a || 0) + (b || 0))
   const total = { kcal: f.kcal ?? add(f.base.kcal, items.kcal), protein: f.protein ?? add(f.base.protein, items.protein) }
+  Object.keys(MACRO_LABEL).forEach(k => { const v = add(f.base[k], items[k]); total[k] = v == null ? null : Math.round(v * 10) / 10 })
 
   async function save() {
     setSaving(true); setErr(null)
     try {
       const urls = await Promise.all(f.photos.map(p => p.upload))
       const row = { date: f.date, meal: f.meal, kind: f.kind, entry: itemsText(f.items, f.note),
-        est_kcal: total.kcal, est_protein_g: total.protein, photo_urls: urls }
+        est_kcal: total.kcal, est_protein_g: total.protein, nutrients: nutrientsJson(total), photo_urls: urls }
       if (editing) { if (!(await foodUpdate(editing.id, row))) throw new Error('not saved') }
       else await foodAdd({ ...row, barcode: f.items[0] && f.items[0].barcode })
       reset()
@@ -234,7 +239,7 @@ export default function Food() {
       </div>}
       {busy && <div className="small muted" style={{ marginTop: 8 }}>{busy}</div>}
       {f.items.map(it => <FoodItem key={it.key} item={it}
-        onGrams={g => { const p = portion(it.product, g); setItem(it.key, { grams: g, kcal: p.kcal, protein: p.protein }) }}
+        onGrams={g => setItem(it.key, { grams: g, ...portion(it.product, g) })}
         onKcal={kcal => setItem(it.key, { kcal })}
         onRemove={() => set(s => ({ items: s.items.filter(i => i.key !== it.key) }))} />)}
       {f.photos.length > 0 && <div className="food-thumbs">
@@ -260,7 +265,8 @@ export default function Food() {
         <label className="row small muted" style={{ gap: 6 }}>合计 <NumberField value={total.kcal} nullable decimal={false} style={{ width: 80 }} onChange={kcal => set({ kcal })} /> kcal</label>
         <label className="row small muted" style={{ gap: 6 }}>蛋白 <NumberField value={total.protein} nullable decimal={false} style={{ width: 60 }} onChange={protein => set({ protein })} /> g</label>
       </div>
-      <div className="small muted" style={{ marginTop: 6 }}>扫过的食物自动加起来；不知道就留空。</div>
+      {macroLine(total) && <div className="small" style={{ marginTop: 8 }}>{macroLine(total)}</div>}
+      <div className="small muted" style={{ marginTop: 6 }}>扫过、搜过的食物自动加起来；不知道就留空。</div>
       <Button variant="primary" className="food-gap" onClick={save} disabled={!canSave}>{saving ? '保存中…' : editing ? '保存修改' : '保存'}</Button>
       {err && <div className="small" style={{ color: 'var(--red)', marginTop: 8 }}>{err}</div>}
     </div>

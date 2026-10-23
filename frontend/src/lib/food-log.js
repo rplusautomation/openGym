@@ -41,18 +41,27 @@ export function parseProduct(p) {
     name: name || null,
     kcal100: kcal100 != null ? Math.round(kcal100) : null,
     protein100: num(n.proteins_100g),
+    carbs100: num(n.carbohydrates_100g),
+    fat100: num(n.fat_100g),
+    sugar100: num(n.sugars_100g),
+    fiber100: num(n.fiber_100g),
+    salt100: num(n.salt_100g),
     packG: num(p.product_quantity),
     servingG: num(p.serving_quantity),
   }
 }
 
-// kcal and protein for g grams of a parsed product, whole numbers; null where unknown.
+// What g grams of a parsed product hold: kcal and grams of each nutrient (salt to 0.1 g, the rest
+// whole); null where the product does not say.
+export const NUTRIENTS = ['protein', 'carbs', 'fat', 'sugar', 'fiber', 'salt']
 export function portion(prod, g) {
-  if (!prod || !(g > 0)) return { kcal: null, protein: null }
-  return {
-    kcal: prod.kcal100 != null ? Math.round(prod.kcal100 * g / 100) : null,
-    protein: prod.protein100 != null ? Math.round(prod.protein100 * g / 100) : null,
-  }
+  const out = { kcal: null }
+  NUTRIENTS.forEach(k => { out[k] = null })
+  if (!prod || !(g > 0)) return out
+  const at = (v, dp = 0) => v == null ? null : Math.round(v * g / 100 * 10 ** dp) / 10 ** dp
+  out.kcal = at(prod.kcal100)
+  NUTRIENTS.forEach(k => { out[k] = at(prod[k + '100'], k === 'salt' ? 1 : 0) })
+  return out
 }
 
 // Foods by name ("kartoffelsalat ja"), best matches first: [{ code, ...parseProduct }]. Through the
@@ -141,8 +150,17 @@ export async function scanFrame(video, { doc = globalThis.document } = {}) {
 // An entry can hold several scanned foods. Each item: { name, grams, kcal, protein } (kcal/protein
 // already scaled to its grams, null where unknown). Totals add what is known; null when nothing is.
 export function itemsTotal(items) {
-  const sum = k => items.some(i => i[k] != null) ? items.reduce((a, i) => a + (i[k] || 0), 0) : null
-  return { kcal: sum('kcal'), protein: sum('protein') }
+  const sum = k => items.some(i => i[k] != null) ? Math.round(items.reduce((a, i) => a + (i[k] || 0), 0) * 10) / 10 : null
+  const out = { kcal: sum('kcal') }
+  NUTRIENTS.forEach(k => { out[k] = sum(k) })
+  return out
+}
+// The row's nutrients column ({ carbs_g, fat_g, sugar_g, fiber_g, salt_g }) from a total, or null
+// when none is known. Protein and kcal have their own columns.
+export function nutrientsJson(t) {
+  const o = {}
+  NUTRIENTS.filter(k => k !== 'protein' && t[k] != null).forEach(k => { o[k + '_g'] = t[k] })
+  return Object.keys(o).length ? o : null
 }
 // The text the row stores: "De Cecco Conchiglie 230 g; Meggle Baguette 160 g" plus the free note.
 export function itemsText(items, note) {
