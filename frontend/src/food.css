@@ -10,3 +10,11 @@
 .food .cam-frame{width:82%;aspect-ratio:2/1}
 .food-row{cursor:pointer}
 .food-row.on{background:color-mix(in srgb,var(--orange) 12%,transparent);border-radius:var(--r-sm)}
+.food input.num{background:var(--surface-2);color:var(--label);border:1px solid var(--sep);border-radius:8px;padding:6px 8px;font-size:16px;text-align:center;-webkit-text-fill-color:var(--label)}
+.food .field{background:var(--surface-2);color:var(--label);-webkit-text-fill-color:var(--label)}
+.food-step{font-size:13px;font-weight:600;color:var(--label-2);margin-bottom:10px}
+.food-item{margin-top:12px;padding:10px 12px;border-radius:var(--r-sm);background:var(--surface-2)}
+.food-item input.num{background:var(--surface)}
+.food-thumb{position:relative;flex:none}
+.food-thumb .iconbtn{position:absolute;top:2px;right:2px;width:24px;height:24px;font-size:12px;background:rgba(0,0,0,.55);color:#fff}
+.food-editing{border-left:4px solid var(--orange)}

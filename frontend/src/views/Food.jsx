@@ -1,12 +1,12 @@
 // R+ fork: the food log screen (lib/food-log.js). Built for one hand in a hurry: a photo (camera or
-// album) is the whole entry if need be; a barcode, scanned live or found in a photo, fills name, kcal
-// and protein; meal and kind
+// album) is the whole entry if need be; each barcode, scanned live or found in a photo, adds one food
+// with its portion and kcal (several foods per entry); meal and kind
 // are preset from the hour; text and numbers are optional. Inside the NOOP app this screen is its own
 // tab (#/food?tab=1), so the gym tab bar is hidden there. Tapping a logged entry loads it back into
 // the form to correct it (any entry of the last 14 days, the coach's estimates included).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SB_BACKEND, foodAdd, foodUpdate, foodList, foodDelete, foodPhotoUpload } from '../lib/supabase-backend.js'
-import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode, scanFrame } from '../lib/food-log.js'
+import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode, scanFrame, itemsTotal, itemsText } from '../lib/food-log.js'
 import { todayISO, isoOf } from '../lib/format.js'
 import { Segmented, NumberField, TextField, TextArea, Button } from '../components/ui.jsx'
 import Icon from '../components/Icon.jsx'
@@ -52,12 +52,33 @@ function BarcodeScan({ onFound, onCancel }) {
 
 function blank() {
   const meal = defaultMeal(new Date().getHours())
-  return { date: todayISO(), meal, kind: defaultKind(meal), entry: '', kcal: null, protein: null, grams: null, barcode: null, product: null, photos: [] }
+  return { date: todayISO(), meal, kind: defaultKind(meal), note: '', items: [], photos: [], kcal: null, protein: null, base: { kcal: null, protein: null } }
+}
+
+// One scanned food: name, kcal per 100 g, portion buttons and grams, its own kcal.
+function FoodItem({ item, onGrams, onKcal, onRemove }) {
+  const p = item.product
+  return <div className="food-item">
+    <div className="row between">
+      <div style={{ fontWeight: 600, minWidth: 0 }} className="food-entry">{item.name || '条码 ' + item.barcode}</div>
+      <button className="iconbtn" aria-label="去掉" onClick={onRemove}><Icon name="xmark" /></button>
+    </div>
+    <div className="small muted">{p ? (p.kcal100 != null ? `${p.kcal100} kcal/100 g` : '数据库里没有热量') : '数据库里没有这个条码，热量自己填或者留空'}</div>
+    {p && p.kcal100 != null && <div className="chips nocap" style={{ marginTop: 8 }}>
+      {p.packG && <button className={'chip nocap' + (item.grams === p.packG ? ' on' : '')} onClick={() => onGrams(p.packG)}>整包 {p.packG} g</button>}
+      {p.packG && <button className={'chip nocap' + (item.grams === p.packG / 2 ? ' on' : '')} onClick={() => onGrams(p.packG / 2)}>半包</button>}
+      {p.servingG && <button className={'chip nocap' + (item.grams === p.servingG ? ' on' : '')} onClick={() => onGrams(p.servingG)}>一份 {p.servingG} g</button>}
+    </div>}
+    <div className="row" style={{ gap: 14, marginTop: 8 }}>
+      {p && p.kcal100 != null && <label className="row small muted" style={{ gap: 6 }}><NumberField value={item.grams} nullable decimal={false} style={{ width: 70 }} onChange={onGrams} /> g</label>}
+      <label className="row small muted" style={{ gap: 6 }}><NumberField value={item.kcal} nullable decimal={false} style={{ width: 70 }} onChange={onKcal} /> kcal</label>
+    </div>
+  </div>
 }
 
 export default function Food() {
   const [f, setF] = useState(blank)
-  const [busy, setBusy] = useState(null)       // a short line while a photo is being read
+  const [busy, setBusy] = useState(null)       // a short line while a photo or code is being read
   const [err, setErr] = useState(null)
   const [saving, setSaving] = useState(false)
   const [rows, setRows] = useState(null)
@@ -65,26 +86,25 @@ export default function Food() {
   const [editing, setEditing] = useState(null)   // the row being corrected, or null for a new entry
   const fileRef = useRef(null)
   const set = patch => setF(s => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }))
+  const setItem = (key, patch) => set(s => ({ items: s.items.map(i => i.key === key ? { ...i, ...patch } : i) }))
 
   const reload = () => foodList(7).then(r => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]))
   useEffect(() => { if (SB_BACKEND) reload() }, [])
 
-  // grams -> kcal/protein from the product, unless typed over
-  const usePortion = (prod, g) => { const p = portion(prod, g); set({ grams: g, kcal: p.kcal, protein: p.protein }) }
-
-  async function useCode(code) {
+  async function addCode(code) {
     setBusy('查询 ' + code + '…')
     const prod = await lookupBarcode(code).catch(() => null)
-    set(s => ({ barcode: code, product: prod, entry: s.entry || (prod && prod.name) || '' }))
-    if (prod) usePortion(prod, prod.packG || prod.servingG || 100)
+    const grams = prod && prod.kcal100 != null ? (prod.packG || prod.servingG || 100) : null
+    const p = portion(prod, grams)
+    const item = { key: Date.now() + Math.random(), barcode: code, product: prod, name: prod && prod.name, grams, kcal: p.kcal, protein: p.protein }
+    set(s => ({ items: [...s.items, item] }))
     setBusy(null)
   }
-  const onScanned = useCallback(code => { setScanning(false); useCode(code) }, [])
+  const onScanned = useCallback(code => { setScanning(false); addCode(code) }, [])
   const onScanCancel = useCallback(() => setScanning(false), [])
 
   async function pick(files) {
     setErr(null)
-    let found = !!f.barcode
     for (const file of files) {
       let pic = null
       try {
@@ -96,11 +116,9 @@ export default function Food() {
         const upload = foodPhotoUpload(enc.blob, enc.mime)
         upload.catch(() => {})
         set(s => ({ photos: [...s.photos, { preview, upload }] }))
-        if (!found) {
-          setBusy('找条码…')
-          const code = await findBarcode(pic).catch(() => null)
-          if (code) { found = true; await useCode(code) }
-        }
+        setBusy('找条码…')
+        const code = await findBarcode(pic).catch(() => null)
+        if (code) await addCode(code)
       } catch {
         setErr('这张照片读不了，换一张试试。')
       } finally {
@@ -113,8 +131,9 @@ export default function Food() {
   function edit(r) {
     reset()
     setEditing(r)
-    setF({ date: r.date, meal: r.meal, kind: r.kind, entry: r.entry || '', kcal: r.est_kcal, protein: r.est_protein_g, grams: null,
-      barcode: r.barcode, product: null, photos: (r.photo_urls || []).map(u => ({ preview: u, upload: Promise.resolve(u), saved: true })) })
+    setF({ date: r.date, meal: r.meal, kind: r.kind, note: r.entry || '', items: [], kcal: null, protein: null,
+      base: { kcal: r.est_kcal, protein: r.est_protein_g },
+      photos: (r.photo_urls || []).map(u => ({ preview: u, upload: Promise.resolve(u), saved: true })) })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   function reset() {
@@ -123,17 +142,20 @@ export default function Food() {
     setF(blank())
   }
 
+  // The entry's total: what was typed in the total field, else the stored value (when correcting)
+  // plus every scanned food.
+  const items = itemsTotal(f.items)
+  const add = (a, b) => (a == null && b == null ? null : (a || 0) + (b || 0))
+  const total = { kcal: f.kcal ?? add(f.base.kcal, items.kcal), protein: f.protein ?? add(f.base.protein, items.protein) }
+
   async function save() {
     setSaving(true); setErr(null)
     try {
       const urls = await Promise.all(f.photos.map(p => p.upload))
-      const row = {
-        date: f.date, meal: f.meal, kind: f.kind,
-        entry: [f.entry.trim(), f.grams && f.product ? f.grams + ' g' : ''].filter(Boolean).join(' · '),
-        est_kcal: f.kcal, est_protein_g: f.protein, photo_urls: urls,
-      }
+      const row = { date: f.date, meal: f.meal, kind: f.kind, entry: itemsText(f.items, f.note),
+        est_kcal: total.kcal, est_protein_g: total.protein, photo_urls: urls }
       if (editing) { if (!(await foodUpdate(editing.id, row))) throw new Error('not saved') }
-      else await foodAdd({ ...row, barcode: f.barcode })
+      else await foodAdd({ ...row, barcode: f.items[0] && f.items[0].barcode })
       reset()
       reload()
     } catch {
@@ -150,8 +172,7 @@ export default function Food() {
     reload()
   }
 
-  const prod = f.product
-  const canSave = !saving && !busy && (f.photos.length || f.entry.trim() || f.barcode)
+  const canSave = !saving && !busy && (f.photos.length || f.note.trim() || f.items.length)
   const byDay = d => (rows || []).filter(r => r.date === d)
   const days = [...new Set((rows || []).map(r => r.date))].sort().reverse()
   const dayLabel = d => d === todayISO() ? '今天' : d === yesterdayISO() ? '昨天' : d.slice(5).replace('-', '/')
@@ -164,47 +185,50 @@ export default function Food() {
   return <div className="narrow food">
     <div className="hdr"><div><h1>饮食</h1><div className="sub">只记和计划不一样的</div></div></div>
 
+    {editing && <div className="card food-editing row between">
+      <div style={{ fontWeight: 600 }}>修改 {dayLabel(editing.date)} 的记录</div>
+      <Button variant="plain" size="sm" onClick={reset}>取消</Button>
+    </div>}
+
     {scanning && <BarcodeScan onFound={onScanned} onCancel={onScanCancel} />}
 
     <div className="card">
+      <div className="food-step">1 · 加食物（可以加好几样）</div>
       <input ref={fileRef} type="file" accept="image/*" multiple hidden
         onChange={e => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) pick(fs) }} />
       <div className="row" style={{ gap: 10 }}>
-        <Button variant="primary" icon="camera" onClick={() => fileRef.current && fileRef.current.click()} disabled={!!busy}>
-          {f.photos.length ? '再加一张' : '拍照 / 相册'}
-        </Button>
         <Button variant="tinted" icon="qr" onClick={() => setScanning(true)} disabled={!!busy || scanning}>扫条码</Button>
+        <Button variant="tinted" icon="camera" onClick={() => fileRef.current && fileRef.current.click()} disabled={!!busy}>拍照 / 相册</Button>
       </div>
       {busy && <div className="small muted" style={{ marginTop: 8 }}>{busy}</div>}
+      {f.items.map(it => <FoodItem key={it.key} item={it}
+        onGrams={g => { const p = portion(it.product, g); setItem(it.key, { grams: g, kcal: p.kcal, protein: p.protein }) }}
+        onKcal={kcal => setItem(it.key, { kcal })}
+        onRemove={() => set(s => ({ items: s.items.filter(i => i.key !== it.key) }))} />)}
       {f.photos.length > 0 && <div className="food-thumbs">
-        {f.photos.map((p, i) => <img key={i} src={p.preview} alt="" />)}
+        {f.photos.map((p, i) => <div key={i} className="food-thumb">
+          <img src={p.preview} alt="" />
+          <button className="iconbtn" aria-label="去掉照片" onClick={() => set(s => ({ photos: s.photos.filter((_, j) => j !== i) }))}><Icon name="xmark" /></button>
+        </div>)}
       </div>}
-      {f.barcode && <div className="small muted" style={{ marginTop: 8 }}>
-        条码 {f.barcode}{prod ? (prod.kcal100 != null ? ` · ${prod.kcal100} kcal/100 g` : ' · 没有热量数据') : ' · 数据库里没有'}
-      </div>}
-      {prod && prod.kcal100 != null && <div className="chips" style={{ marginTop: 8 }}>
-        {prod.packG && <button className={'chip' + (f.grams === prod.packG ? ' on' : '')} onClick={() => usePortion(prod, prod.packG)}>整包 {prod.packG} g</button>}
-        {prod.packG && <button className={'chip' + (f.grams === prod.packG / 2 ? ' on' : '')} onClick={() => usePortion(prod, prod.packG / 2)}>半包</button>}
-        {prod.servingG && <button className={'chip' + (f.grams === prod.servingG ? ' on' : '')} onClick={() => usePortion(prod, prod.servingG)}>一份 {prod.servingG} g</button>}
-        <span className="row" style={{ gap: 4 }}><NumberField value={f.grams} nullable decimal={false} style={{ width: 64 }} onChange={g => usePortion(prod, g)} /> g</span>
-      </div>}
+      {!f.items.length && !f.photos.length && <div className="small muted" style={{ marginTop: 8 }}>有条码就扫条码；没有就拍一张，教练周一按照片估。</div>}
     </div>
 
     <div className="card">
-      {editing && <div className="row between" style={{ marginBottom: 10 }}>
-        <div style={{ fontWeight: 600, color: 'var(--orange)' }}>修改 {dayLabel(editing.date)} 的记录</div>
-        <Button variant="plain" size="sm" onClick={reset}>取消</Button>
-      </div>}
+      <div className="food-step">2 · 哪一顿</div>
       <Segmented options={MEALS} value={f.meal} onChange={meal => set({ meal, kind: defaultKind(meal) })} />
       <Segmented className="food-gap" options={KINDS} value={f.kind} onChange={kind => set({ kind })} />
       <Segmented className="food-gap" options={dateOpts} value={f.date} onChange={date => set({ date })} />
-      {editing
-        ? <TextArea className="food-gap" rows={3} value={f.entry} onChange={e => set({ entry: e.target.value })} />
-        : <TextField className="food-gap" placeholder="写点什么（可不填）" value={f.entry} onChange={e => set({ entry: e.target.value })} />}
-      <div className="row food-gap" style={{ gap: 10 }}>
-        <label className="row small muted" style={{ gap: 6 }}>kcal <NumberField value={f.kcal} nullable decimal={false} style={{ width: 72 }} onChange={kcal => set({ kcal })} /></label>
-        <label className="row small muted" style={{ gap: 6 }}>蛋白 g <NumberField value={f.protein} nullable decimal={false} style={{ width: 56 }} onChange={protein => set({ protein })} /></label>
+      <TextArea className="food-gap" rows={editing ? 3 : 2} placeholder="备注（可不填），比如：加了鸡胸肉" value={f.note} onChange={e => set({ note: e.target.value })} />
+    </div>
+
+    <div className="card">
+      <div className="food-step">3 · 保存</div>
+      <div className="row" style={{ gap: 14 }}>
+        <label className="row small muted" style={{ gap: 6 }}>合计 <NumberField value={total.kcal} nullable decimal={false} style={{ width: 80 }} onChange={kcal => set({ kcal })} /> kcal</label>
+        <label className="row small muted" style={{ gap: 6 }}>蛋白 <NumberField value={total.protein} nullable decimal={false} style={{ width: 60 }} onChange={protein => set({ protein })} /> g</label>
       </div>
+      <div className="small muted" style={{ marginTop: 6 }}>扫过的食物自动加起来；不知道就留空。</div>
       <Button variant="primary" className="food-gap" onClick={save} disabled={!canSave}>{saving ? '保存中…' : editing ? '保存修改' : '保存'}</Button>
       {err && <div className="small" style={{ color: 'var(--red)', marginTop: 8 }}>{err}</div>}
     </div>

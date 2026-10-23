@@ -39,3 +39,14 @@ describe('Open Food Facts product', () => {
     expect(await lookupBarcode('4000000000000', fetchImpl)).toBe(null)
   })
 })
+
+describe('several foods in one entry', () => {
+  it('adds what is known', async () => {
+    const { itemsTotal, itemsText } = await import('./food-log.js')
+    const items = [{ name: 'Pasta', grams: 230, kcal: 810, protein: 30 }, { name: null, barcode: '123', grams: 160, kcal: 514, protein: null }]
+    expect(itemsTotal(items)).toEqual({ kcal: 1324, protein: 30 })
+    expect(itemsTotal([{ name: 'x', kcal: null, protein: null }])).toEqual({ kcal: null, protein: null })
+    expect(itemsText(items, ' with chicken ')).toBe('with chicken · Pasta 230 g; 条码 123 160 g')
+    expect(itemsText([], '')).toBe('')
+  })
+})

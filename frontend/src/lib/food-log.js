@@ -124,3 +124,17 @@ export async function scanFrame(video, { doc = globalThis.document } = {}) {
   if (!_frameCanvas) _frameCanvas = doc.createElement('canvas')
   return decodeAt({ source: video, width: video.videoWidth, height: video.videoHeight }, 960, false, _frameCanvas)
 }
+
+/* ---------------------------------------------------------------- several foods in one entry */
+
+// An entry can hold several scanned foods. Each item: { name, grams, kcal, protein } (kcal/protein
+// already scaled to its grams, null where unknown). Totals add what is known; null when nothing is.
+export function itemsTotal(items) {
+  const sum = k => items.some(i => i[k] != null) ? items.reduce((a, i) => a + (i[k] || 0), 0) : null
+  return { kcal: sum('kcal'), protein: sum('protein') }
+}
+// The text the row stores: "De Cecco Conchiglie 230 g; Meggle Baguette 160 g" plus the free note.
+export function itemsText(items, note) {
+  const list = items.map(i => [i.name || '条码 ' + (i.barcode || '?'), i.grams ? i.grams + ' g' : ''].filter(Boolean).join(' ')).join('; ')
+  return [note && note.trim(), list].filter(Boolean).join(' · ')
+}
