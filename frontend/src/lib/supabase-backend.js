@@ -49,6 +49,23 @@ function checked(res) {
 export const coachTips = () => rpc('og_coach_tips')
 // Today's coach check (strap + gym + weight + food, run by pg_cron; see lib/coach-daily.js). Read-only.
 export const coachDaily = () => rpc('og_coach_daily')
+// Food log (lib/food-log.js): one row per deviation from the meal plan.
+export const foodAdd = row => rpc('og_food_add', { p: row })
+export const foodList = (days = 3) => rpc('og_food_list', { p_days: days })
+export const foodDelete = id => rpc('og_food_delete', { p_id: id })
+// A food photo into the public food-photos bucket under a random name; resolves to its URL.
+export async function foodPhotoUpload(blob, mime) {
+  const ext = mime === 'image/webp' ? 'webp' : 'jpg'
+  const name = new Date().toISOString().slice(0, 7) + '/' + crypto.randomUUID() + '.' + ext
+  const base = SB_URL.replace(/\/$/, '') + '/storage/v1/object/'
+  const r = await fetch(base + 'food-photos/' + name, {
+    method: 'POST',
+    headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': mime },
+    body: blob
+  })
+  if (!r.ok) throw fail(r.status, 'photo upload failed')
+  return base + 'public/food-photos/' + name
+}
 
 export async function sbApi(path, init) {
   const method = ((init && init.method) || 'GET').toUpperCase()

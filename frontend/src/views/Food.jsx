@@ -1,0 +1,153 @@
+// R+ fork: the food log screen (lib/food-log.js). Built for one hand in a hurry: a photo (camera or
+// album) is the whole entry if need be; a barcode in it fills name, kcal and protein; meal and kind
+// are preset from the hour; text and numbers are optional. Inside the NOOP app this screen is its own
+// tab (#/food?tab=1), so the gym tab bar is hidden there.
+import { useEffect, useRef, useState } from 'react'
+import { SB_BACKEND, foodAdd, foodList, foodDelete, foodPhotoUpload } from '../lib/supabase-backend.js'
+import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode } from '../lib/food-log.js'
+import { todayISO, isoOf } from '../lib/format.js'
+import { Segmented, NumberField, TextField, Button } from '../components/ui.jsx'
+import Icon from '../components/Icon.jsx'
+import '../food.css'
+
+const yesterdayISO = () => isoOf(new Date(Date.now() - 86400000))
+
+function blank() {
+  const meal = defaultMeal(new Date().getHours())
+  return { date: todayISO(), meal, kind: defaultKind(meal), entry: '', kcal: null, protein: null, grams: null, barcode: null, product: null, photos: [] }
+}
+
+export default function Food() {
+  const [f, setF] = useState(blank)
+  const [busy, setBusy] = useState(null)       // a short line while a photo is being read
+  const [err, setErr] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [rows, setRows] = useState(null)
+  const fileRef = useRef(null)
+  const set = patch => setF(s => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }))
+
+  const reload = () => foodList(2).then(r => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]))
+  useEffect(() => { if (SB_BACKEND) reload() }, [])
+
+  // grams -> kcal/protein from the product, unless typed over
+  const usePortion = (prod, g) => { const p = portion(prod, g); set({ grams: g, kcal: p.kcal, protein: p.protein }) }
+
+  async function pick(files) {
+    setErr(null)
+    let found = !!f.barcode
+    for (const file of files) {
+      let pic = null
+      try {
+        setBusy('读取照片…')
+        pic = await openPhoto(file)
+        const enc = await encodePhoto(pic)
+        const preview = URL.createObjectURL(enc.blob)
+        // The upload runs in the background; saving waits for it.
+        const upload = foodPhotoUpload(enc.blob, enc.mime)
+        upload.catch(() => {})
+        set(s => ({ photos: [...s.photos, { preview, upload }] }))
+        if (!found) {
+          setBusy('找条码…')
+          const code = await findBarcode(pic).catch(() => null)
+          if (code) {
+            found = true
+            setBusy('查询 ' + code + '…')
+            const prod = await lookupBarcode(code).catch(() => null)
+            set(s => ({ barcode: code, product: prod, entry: s.entry || (prod && prod.name) || '' }))
+            if (prod) usePortion(prod, prod.packG || prod.servingG || 100)
+          }
+        }
+      } catch {
+        setErr('这张照片读不了，换一张试试。')
+      } finally {
+        if (pic) pic.close()
+        setBusy(null)
+      }
+    }
+  }
+
+  async function save() {
+    setSaving(true); setErr(null)
+    try {
+      const urls = await Promise.all(f.photos.map(p => p.upload))
+      await foodAdd({
+        date: f.date, meal: f.meal, kind: f.kind,
+        entry: [f.entry.trim(), f.grams && f.product ? f.grams + ' g' : ''].filter(Boolean).join(' · '),
+        est_kcal: f.kcal, est_protein_g: f.protein, photo_urls: urls, barcode: f.barcode,
+      })
+      f.photos.forEach(p => URL.revokeObjectURL(p.preview))
+      setF(blank())
+      reload()
+    } catch {
+      setErr('没存上，网络好了再点一次。')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function remove(row) {
+    if (!window.confirm('删除这条记录？')) return
+    await foodDelete(row.id).catch(() => {})
+    reload()
+  }
+
+  const prod = f.product
+  const canSave = !saving && !busy && (f.photos.length || f.entry.trim() || f.barcode)
+  const byDay = d => (rows || []).filter(r => r.date === d)
+  const addonKcal = byDay(todayISO()).filter(r => r.kind === 'addon').reduce((a, r) => a + (r.est_kcal || 0), 0)
+
+  if (!SB_BACKEND) return <div className="narrow"><div className="hdr"><h1>饮食</h1></div><div className="muted">只在 rpagym 上可用。</div></div>
+
+  return <div className="narrow food">
+    <div className="hdr"><div><h1>饮食</h1><div className="sub">只记和计划不一样的</div></div></div>
+
+    <div className="card">
+      <input ref={fileRef} type="file" accept="image/*" multiple hidden
+        onChange={e => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) pick(fs) }} />
+      <Button variant="primary" icon="camera" onClick={() => fileRef.current && fileRef.current.click()} disabled={!!busy}>
+        {f.photos.length ? '再加一张' : '拍照 / 相册'}
+      </Button>
+      {busy && <div className="small muted" style={{ marginTop: 8 }}>{busy}</div>}
+      {f.photos.length > 0 && <div className="food-thumbs">
+        {f.photos.map((p, i) => <img key={i} src={p.preview} alt="" />)}
+      </div>}
+      {f.barcode && <div className="small muted" style={{ marginTop: 8 }}>
+        条码 {f.barcode}{prod ? (prod.kcal100 != null ? ` · ${prod.kcal100} kcal/100 g` : ' · 没有热量数据') : ' · 数据库里没有'}
+      </div>}
+      {prod && prod.kcal100 != null && <div className="chips" style={{ marginTop: 8 }}>
+        {prod.packG && <button className={'chip' + (f.grams === prod.packG ? ' on' : '')} onClick={() => usePortion(prod, prod.packG)}>整包 {prod.packG} g</button>}
+        {prod.packG && <button className={'chip' + (f.grams === prod.packG / 2 ? ' on' : '')} onClick={() => usePortion(prod, prod.packG / 2)}>半包</button>}
+        {prod.servingG && <button className={'chip' + (f.grams === prod.servingG ? ' on' : '')} onClick={() => usePortion(prod, prod.servingG)}>一份 {prod.servingG} g</button>}
+        <span className="row" style={{ gap: 4 }}><NumberField value={f.grams} nullable decimal={false} style={{ width: 64 }} onChange={g => usePortion(prod, g)} /> g</span>
+      </div>}
+    </div>
+
+    <div className="card">
+      <Segmented options={MEALS} value={f.meal} onChange={meal => set({ meal, kind: defaultKind(meal) })} />
+      <Segmented className="food-gap" options={KINDS} value={f.kind} onChange={kind => set({ kind })} />
+      <Segmented className="food-gap" options={[{ value: todayISO(), label: '今天' }, { value: yesterdayISO(), label: '昨天' }]} value={f.date} onChange={date => set({ date })} />
+      <TextField className="food-gap" placeholder="写点什么（可不填）" value={f.entry} onChange={e => set({ entry: e.target.value })} />
+      <div className="row food-gap" style={{ gap: 10 }}>
+        <label className="row small muted" style={{ gap: 6 }}>kcal <NumberField value={f.kcal} nullable decimal={false} style={{ width: 72 }} onChange={kcal => set({ kcal })} /></label>
+        <label className="row small muted" style={{ gap: 6 }}>蛋白 g <NumberField value={f.protein} nullable decimal={false} style={{ width: 56 }} onChange={protein => set({ protein })} /></label>
+      </div>
+      <Button variant="primary" className="food-gap" onClick={save} disabled={!canSave}>{saving ? '保存中…' : '保存'}</Button>
+      {err && <div className="small" style={{ color: 'var(--red)', marginTop: 8 }}>{err}</div>}
+    </div>
+
+    {[todayISO(), yesterdayISO()].map(d => byDay(d).length > 0 && <div className="card" key={d}>
+      <div className="row between" style={{ marginBottom: 6 }}>
+        <div style={{ fontWeight: 600 }}>{d === todayISO() ? '今天' : '昨天'}</div>
+        {d === todayISO() && addonKcal > 0 && <div className="small muted">额外 {addonKcal} kcal</div>}
+      </div>
+      {byDay(d).map(r => <div className="food-row" key={r.id}>
+        {r.photo_urls && r.photo_urls[0] ? <img src={r.photo_urls[0]} alt="" /> : <span className="food-noimg"><Icon name="image" /></span>}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div>{mealLabel(r.meal)} · {r.kind === 'replacement' ? '替换' : '额外'}{r.est_kcal != null ? ` · ${r.est_kcal} kcal` : ''}</div>
+          {r.entry && <div className="small muted food-entry">{r.entry}</div>}
+        </div>
+        {r.source === 'app' && <button className="iconbtn" aria-label="删除" onClick={() => remove(r)}><Icon name="trash" /></button>}
+      </div>)}
+    </div>)}
+  </div>
+}

@@ -34,6 +34,7 @@ import Workout from './views/Workout.jsx'
 import Stats from './views/Stats.jsx'
 import History from './views/History.jsx'
 import Stretch from './views/Stretch.jsx'   // R+ fork
+import Food from './views/Food.jsx'   // R+ fork
 import QuickTimer from './components/QuickTimer.jsx'   // R+ fork
 import Library from './views/Library.jsx'
 import Muscles from './views/Muscles.jsx'
@@ -187,6 +188,7 @@ function Shell() {
               <Route path="/stats" element={<Stats />} />
               <Route path="/history" element={<History />} />
               <Route path="/stretch" element={<Stretch />} />
+              <Route path="/food" element={<Food />} />{/* R+ fork */}
               <Route path="/library" element={<Library />} />
               <Route path="/muscles" element={<Muscles />} />
               <Route path="/structural-balance" element={<StructuralBalance />} />
@@ -209,7 +211,8 @@ function Shell() {
           including on the sign-in screen, when the server has just ended the session. */}
       <SyncBanner />
       {/* The chat owns the bottom of the screen: its composer sits where the tabs would be. */}
-      {loc.pathname !== '/coach' && <TabBar onStart={startFlow} />}
+      {/* R+ fork: #/food?tab=1 is NOOP's own food tab, which has NOOP's tab bar under it. */}
+      {loc.pathname !== '/coach' && !(loc.pathname === '/food' && new URLSearchParams(loc.search).has('tab')) && <TabBar onStart={startFlow} />}
       {authed && <QuickTimer />}
       <RestTimer />
       <Modals />

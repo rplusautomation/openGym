@@ -79,6 +79,7 @@ export default function Home() {
     </div>
 
     <CoachDailyCard />{/* R+ fork: today's coach check */}
+    <Button variant="tinted" icon="camera" style={{ marginBottom: 12 }} onClick={() => nav('/food')}>记录饮食</Button>{/* R+ fork */}
 
     <div className="card">
       <div className="row between" style={{ marginBottom: 8 }}>
