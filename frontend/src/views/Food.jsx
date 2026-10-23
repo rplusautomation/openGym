@@ -2,12 +2,13 @@
 // album) is the whole entry if need be; a barcode, scanned live or found in a photo, fills name, kcal
 // and protein; meal and kind
 // are preset from the hour; text and numbers are optional. Inside the NOOP app this screen is its own
-// tab (#/food?tab=1), so the gym tab bar is hidden there.
+// tab (#/food?tab=1), so the gym tab bar is hidden there. Tapping a logged entry loads it back into
+// the form to correct it (any entry of the last 14 days, the coach's estimates included).
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { SB_BACKEND, foodAdd, foodList, foodDelete, foodPhotoUpload } from '../lib/supabase-backend.js'
+import { SB_BACKEND, foodAdd, foodUpdate, foodList, foodDelete, foodPhotoUpload } from '../lib/supabase-backend.js'
 import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode, scanFrame } from '../lib/food-log.js'
 import { todayISO, isoOf } from '../lib/format.js'
-import { Segmented, NumberField, TextField, Button } from '../components/ui.jsx'
+import { Segmented, NumberField, TextField, TextArea, Button } from '../components/ui.jsx'
 import Icon from '../components/Icon.jsx'
 import '../food.css'
 
@@ -61,10 +62,11 @@ export default function Food() {
   const [saving, setSaving] = useState(false)
   const [rows, setRows] = useState(null)
   const [scanning, setScanning] = useState(false)
+  const [editing, setEditing] = useState(null)   // the row being corrected, or null for a new entry
   const fileRef = useRef(null)
   const set = patch => setF(s => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }))
 
-  const reload = () => foodList(2).then(r => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]))
+  const reload = () => foodList(7).then(r => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]))
   useEffect(() => { if (SB_BACKEND) reload() }, [])
 
   // grams -> kcal/protein from the product, unless typed over
@@ -108,17 +110,31 @@ export default function Food() {
     }
   }
 
+  function edit(r) {
+    reset()
+    setEditing(r)
+    setF({ date: r.date, meal: r.meal, kind: r.kind, entry: r.entry || '', kcal: r.est_kcal, protein: r.est_protein_g, grams: null,
+      barcode: r.barcode, product: null, photos: (r.photo_urls || []).map(u => ({ preview: u, upload: Promise.resolve(u), saved: true })) })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  function reset() {
+    f.photos.forEach(p => { if (!p.saved) URL.revokeObjectURL(p.preview) })
+    setEditing(null)
+    setF(blank())
+  }
+
   async function save() {
     setSaving(true); setErr(null)
     try {
       const urls = await Promise.all(f.photos.map(p => p.upload))
-      await foodAdd({
+      const row = {
         date: f.date, meal: f.meal, kind: f.kind,
         entry: [f.entry.trim(), f.grams && f.product ? f.grams + ' g' : ''].filter(Boolean).join(' · '),
-        est_kcal: f.kcal, est_protein_g: f.protein, photo_urls: urls, barcode: f.barcode,
-      })
-      f.photos.forEach(p => URL.revokeObjectURL(p.preview))
-      setF(blank())
+        est_kcal: f.kcal, est_protein_g: f.protein, photo_urls: urls,
+      }
+      if (editing) { if (!(await foodUpdate(editing.id, row))) throw new Error('not saved') }
+      else await foodAdd({ ...row, barcode: f.barcode })
+      reset()
       reload()
     } catch {
       setErr('没存上，网络好了再点一次。')
@@ -130,13 +146,18 @@ export default function Food() {
   async function remove(row) {
     if (!window.confirm('删除这条记录？')) return
     await foodDelete(row.id).catch(() => {})
+    if (editing && editing.id === row.id) reset()
     reload()
   }
 
   const prod = f.product
   const canSave = !saving && !busy && (f.photos.length || f.entry.trim() || f.barcode)
   const byDay = d => (rows || []).filter(r => r.date === d)
-  const addonKcal = byDay(todayISO()).filter(r => r.kind === 'addon').reduce((a, r) => a + (r.est_kcal || 0), 0)
+  const days = [...new Set((rows || []).map(r => r.date))].sort().reverse()
+  const dayLabel = d => d === todayISO() ? '今天' : d === yesterdayISO() ? '昨天' : d.slice(5).replace('-', '/')
+  const addonKcal = d => byDay(d).filter(r => r.kind === 'addon').reduce((a, r) => a + (r.est_kcal || 0), 0)
+  const dateOpts = [{ value: todayISO(), label: '今天' }, { value: yesterdayISO(), label: '昨天' }]
+  if (f.date !== todayISO() && f.date !== yesterdayISO()) dateOpts.push({ value: f.date, label: dayLabel(f.date) })
 
   if (!SB_BACKEND) return <div className="narrow"><div className="hdr"><h1>饮食</h1></div><div className="muted">只在 rpagym 上可用。</div></div>
 
@@ -170,30 +191,37 @@ export default function Food() {
     </div>
 
     <div className="card">
+      {editing && <div className="row between" style={{ marginBottom: 10 }}>
+        <div style={{ fontWeight: 600, color: 'var(--orange)' }}>修改 {dayLabel(editing.date)} 的记录</div>
+        <Button variant="plain" size="sm" onClick={reset}>取消</Button>
+      </div>}
       <Segmented options={MEALS} value={f.meal} onChange={meal => set({ meal, kind: defaultKind(meal) })} />
       <Segmented className="food-gap" options={KINDS} value={f.kind} onChange={kind => set({ kind })} />
-      <Segmented className="food-gap" options={[{ value: todayISO(), label: '今天' }, { value: yesterdayISO(), label: '昨天' }]} value={f.date} onChange={date => set({ date })} />
-      <TextField className="food-gap" placeholder="写点什么（可不填）" value={f.entry} onChange={e => set({ entry: e.target.value })} />
+      <Segmented className="food-gap" options={dateOpts} value={f.date} onChange={date => set({ date })} />
+      {editing
+        ? <TextArea className="food-gap" rows={3} value={f.entry} onChange={e => set({ entry: e.target.value })} />
+        : <TextField className="food-gap" placeholder="写点什么（可不填）" value={f.entry} onChange={e => set({ entry: e.target.value })} />}
       <div className="row food-gap" style={{ gap: 10 }}>
         <label className="row small muted" style={{ gap: 6 }}>kcal <NumberField value={f.kcal} nullable decimal={false} style={{ width: 72 }} onChange={kcal => set({ kcal })} /></label>
         <label className="row small muted" style={{ gap: 6 }}>蛋白 g <NumberField value={f.protein} nullable decimal={false} style={{ width: 56 }} onChange={protein => set({ protein })} /></label>
       </div>
-      <Button variant="primary" className="food-gap" onClick={save} disabled={!canSave}>{saving ? '保存中…' : '保存'}</Button>
+      <Button variant="primary" className="food-gap" onClick={save} disabled={!canSave}>{saving ? '保存中…' : editing ? '保存修改' : '保存'}</Button>
       {err && <div className="small" style={{ color: 'var(--red)', marginTop: 8 }}>{err}</div>}
     </div>
 
-    {[todayISO(), yesterdayISO()].map(d => byDay(d).length > 0 && <div className="card" key={d}>
+    {days.length > 0 && <div className="small muted" style={{ margin: '0 4px 8px' }}>点一条记录可以修改</div>}
+    {days.map(d => <div className="card" key={d}>
       <div className="row between" style={{ marginBottom: 6 }}>
-        <div style={{ fontWeight: 600 }}>{d === todayISO() ? '今天' : '昨天'}</div>
-        {d === todayISO() && addonKcal > 0 && <div className="small muted">额外 {addonKcal} kcal</div>}
+        <div style={{ fontWeight: 600 }}>{dayLabel(d)}</div>
+        {addonKcal(d) > 0 && <div className="small muted">额外 {addonKcal(d)} kcal</div>}
       </div>
-      {byDay(d).map(r => <div className="food-row" key={r.id}>
+      {byDay(d).map(r => <div className={'food-row' + (editing && editing.id === r.id ? ' on' : '')} key={r.id} onClick={() => edit(r)}>
         {r.photo_urls && r.photo_urls[0] ? <img src={r.photo_urls[0]} alt="" /> : <span className="food-noimg"><Icon name="image" /></span>}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div>{mealLabel(r.meal)} · {r.kind === 'replacement' ? '替换' : '额外'}{r.est_kcal != null ? ` · ${r.est_kcal} kcal` : ''}</div>
           {r.entry && <div className="small muted food-entry">{r.entry}</div>}
         </div>
-        {r.source === 'app' && <button className="iconbtn" aria-label="删除" onClick={() => remove(r)}><Icon name="trash" /></button>}
+        {r.source === 'app' && <button className="iconbtn" aria-label="删除" onClick={e => { e.stopPropagation(); remove(r) }}><Icon name="trash" /></button>}
       </div>)}
     </div>)}
   </div>

@@ -8,3 +8,5 @@
 .food-noimg{display:flex;align-items:center;justify-content:center;background:var(--surface-2);color:var(--label-3)}
 .food-entry{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .food .cam-frame{width:82%;aspect-ratio:2/1}
+.food-row{cursor:pointer}
+.food-row.on{background:color-mix(in srgb,var(--orange) 12%,transparent);border-radius:var(--r-sm)}

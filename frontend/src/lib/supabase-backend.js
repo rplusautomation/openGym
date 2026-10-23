@@ -51,6 +51,7 @@ export const coachTips = () => rpc('og_coach_tips')
 export const coachDaily = () => rpc('og_coach_daily')
 // Food log (lib/food-log.js): one row per deviation from the meal plan.
 export const foodAdd = row => rpc('og_food_add', { p: row })
+export const foodUpdate = (id, row) => rpc('og_food_update', { p_id: id, p: row })
 export const foodList = (days = 3) => rpc('og_food_list', { p_days: days })
 export const foodDelete = id => rpc('og_food_delete', { p_id: id })
 // A food photo into the public food-photos bucket under a random name; resolves to its URL.
