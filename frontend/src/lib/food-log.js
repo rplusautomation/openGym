@@ -85,34 +85,42 @@ async function zxing() {
   return _zx
 }
 
-// A product barcode somewhere in the picture, or null. iPhone has no BarcodeDetector, so zxing reads
+// One decode attempt on `pic` ({ source, width, height }) scaled to `edge`, optionally turned a quarter.
+async function decodeAt(pic, edge, turn, canvas) {
+  const { Z, reader } = await zxing()
+  const k = Math.min(1, edge / Math.max(pic.width, pic.height))
+  const w = Math.round(pic.width * k), h = Math.round(pic.height * k)
+  canvas.width = turn ? h : w
+  canvas.height = turn ? w : h
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (turn) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2) }
+  ctx.drawImage(pic.source, 0, 0, w, h)
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const lum = new Uint8ClampedArray(canvas.width * canvas.height)
+  for (let i = 0, j = 0; j < lum.length; i += 4, j++) lum[j] = (img.data[i] * 299 + img.data[i + 1] * 587 + img.data[i + 2] * 114) / 1000
+  try {
+    const hit = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.RGBLuminanceSource(lum, canvas.width, canvas.height))))
+    return hit && hit.getText() ? hit.getText() : null
+  } catch { return null }   // nothing at this size and turn
+}
+
+// A product barcode somewhere in a photo, or null. iPhone has no BarcodeDetector, so zxing reads
 // the pixels, at two sizes and also turned a quarter (a barcode photographed upright).
 export async function findBarcode(pic, { doc = globalThis.document } = {}) {
-  const { Z, reader } = await zxing()
   const canvas = doc.createElement('canvas')
   try {
-    for (const edge of [1400, 900]) {
-      for (const turn of [false, true]) {
-        const k = Math.min(1, edge / Math.max(pic.width, pic.height))
-        const w = Math.round(pic.width * k), h = Math.round(pic.height * k)
-        canvas.width = turn ? h : w
-        canvas.height = turn ? w : h
-        const ctx = canvas.getContext('2d', { willReadFrequently: true })
-        if (turn) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2) }
-        ctx.drawImage(pic.source, 0, 0, w, h)
-        const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
-        const lum = new Uint8ClampedArray(canvas.width * canvas.height)
-        for (let i = 0, j = 0; j < lum.length; i += 4, j++) lum[j] = (img.data[i] * 299 + img.data[i + 1] * 587 + img.data[i + 2] * 114) / 1000
-        try {
-          const src = new Z.RGBLuminanceSource(lum, canvas.width, canvas.height)
-          const hit = reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(src)))
-          if (hit && hit.getText()) return hit.getText()
-        } catch { /* nothing at this size and turn */ }
-      }
+    for (const edge of [1400, 900]) for (const turn of [false, true]) {
+      const code = await decodeAt(pic, edge, turn, canvas)
+      if (code) return code
     }
     return null
-  } finally {
-    canvas.width = 0
-    canvas.height = 0
-  }
+  } finally { canvas.width = 0; canvas.height = 0 }
+}
+
+// One live camera frame: a single fast pass, the scanner calls it every few hundred ms.
+let _frameCanvas = null
+export async function scanFrame(video, { doc = globalThis.document } = {}) {
+  if (!video.videoWidth) return null
+  if (!_frameCanvas) _frameCanvas = doc.createElement('canvas')
+  return decodeAt({ source: video, width: video.videoWidth, height: video.videoHeight }, 960, false, _frameCanvas)
 }

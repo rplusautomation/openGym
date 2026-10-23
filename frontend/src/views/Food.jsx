@@ -1,16 +1,53 @@
 // R+ fork: the food log screen (lib/food-log.js). Built for one hand in a hurry: a photo (camera or
-// album) is the whole entry if need be; a barcode in it fills name, kcal and protein; meal and kind
+// album) is the whole entry if need be; a barcode, scanned live or found in a photo, fills name, kcal
+// and protein; meal and kind
 // are preset from the hour; text and numbers are optional. Inside the NOOP app this screen is its own
 // tab (#/food?tab=1), so the gym tab bar is hidden there.
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { SB_BACKEND, foodAdd, foodList, foodDelete, foodPhotoUpload } from '../lib/supabase-backend.js'
-import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode } from '../lib/food-log.js'
+import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode, scanFrame } from '../lib/food-log.js'
 import { todayISO, isoOf } from '../lib/format.js'
 import { Segmented, NumberField, TextField, Button } from '../components/ui.jsx'
 import Icon from '../components/Icon.jsx'
 import '../food.css'
 
 const yesterdayISO = () => isoOf(new Date(Date.now() - 86400000))
+
+// Live barcode scan: the rear camera in place, a decode every ~200 ms until a code shows up.
+function BarcodeScan({ onFound, onCancel }) {
+  const videoRef = useRef(null)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    let stream = null, timer = null, done = false
+    const stop = () => { done = true; clearTimeout(timer); if (stream) stream.getTracks().forEach(t => t.stop()) }
+    ;(async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 } }, audio: false })
+      } catch { setError(true); return }
+      if (done) { stream.getTracks().forEach(t => t.stop()); return }
+      const v = videoRef.current
+      v.srcObject = stream
+      try { await v.play() } catch { /* frames still arrive */ }
+      const tick = async () => {
+        if (done) return
+        const code = v.readyState >= 2 ? await scanFrame(v).catch(() => null) : null
+        if (code && !done) { stop(); onFound(code); return }
+        timer = setTimeout(tick, 200)
+      }
+      tick()
+    })()
+    return stop
+  }, [onFound])
+  return <div className="card">
+    {error
+      ? <div className="small muted" style={{ marginBottom: 10 }}>相机打不开。用"拍照 / 相册"拍条码也可以。</div>
+      : <>
+          <div className="cam-wrap"><video ref={videoRef} playsInline muted autoPlay /><div className="cam-frame" aria-hidden="true" /></div>
+          <div className="small muted" style={{ textAlign: 'center', margin: '10px 0' }}>条码横着对准框，离 10 到 20 厘米</div>
+        </>}
+    <Button variant="tinted" onClick={onCancel}>取消</Button>
+  </div>
+}
 
 function blank() {
   const meal = defaultMeal(new Date().getHours())
@@ -23,6 +60,7 @@ export default function Food() {
   const [err, setErr] = useState(null)
   const [saving, setSaving] = useState(false)
   const [rows, setRows] = useState(null)
+  const [scanning, setScanning] = useState(false)
   const fileRef = useRef(null)
   const set = patch => setF(s => ({ ...s, ...(typeof patch === 'function' ? patch(s) : patch) }))
 
@@ -31,6 +69,16 @@ export default function Food() {
 
   // grams -> kcal/protein from the product, unless typed over
   const usePortion = (prod, g) => { const p = portion(prod, g); set({ grams: g, kcal: p.kcal, protein: p.protein }) }
+
+  async function useCode(code) {
+    setBusy('查询 ' + code + '…')
+    const prod = await lookupBarcode(code).catch(() => null)
+    set(s => ({ barcode: code, product: prod, entry: s.entry || (prod && prod.name) || '' }))
+    if (prod) usePortion(prod, prod.packG || prod.servingG || 100)
+    setBusy(null)
+  }
+  const onScanned = useCallback(code => { setScanning(false); useCode(code) }, [])
+  const onScanCancel = useCallback(() => setScanning(false), [])
 
   async function pick(files) {
     setErr(null)
@@ -49,13 +97,7 @@ export default function Food() {
         if (!found) {
           setBusy('找条码…')
           const code = await findBarcode(pic).catch(() => null)
-          if (code) {
-            found = true
-            setBusy('查询 ' + code + '…')
-            const prod = await lookupBarcode(code).catch(() => null)
-            set(s => ({ barcode: code, product: prod, entry: s.entry || (prod && prod.name) || '' }))
-            if (prod) usePortion(prod, prod.packG || prod.servingG || 100)
-          }
+          if (code) { found = true; await useCode(code) }
         }
       } catch {
         setErr('这张照片读不了，换一张试试。')
@@ -101,12 +143,17 @@ export default function Food() {
   return <div className="narrow food">
     <div className="hdr"><div><h1>饮食</h1><div className="sub">只记和计划不一样的</div></div></div>
 
+    {scanning && <BarcodeScan onFound={onScanned} onCancel={onScanCancel} />}
+
     <div className="card">
       <input ref={fileRef} type="file" accept="image/*" multiple hidden
         onChange={e => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) pick(fs) }} />
-      <Button variant="primary" icon="camera" onClick={() => fileRef.current && fileRef.current.click()} disabled={!!busy}>
-        {f.photos.length ? '再加一张' : '拍照 / 相册'}
-      </Button>
+      <div className="row" style={{ gap: 10 }}>
+        <Button variant="primary" icon="camera" onClick={() => fileRef.current && fileRef.current.click()} disabled={!!busy}>
+          {f.photos.length ? '再加一张' : '拍照 / 相册'}
+        </Button>
+        <Button variant="tinted" icon="qr" onClick={() => setScanning(true)} disabled={!!busy || scanning}>扫条码</Button>
+      </div>
       {busy && <div className="small muted" style={{ marginTop: 8 }}>{busy}</div>}
       {f.photos.length > 0 && <div className="food-thumbs">
         {f.photos.map((p, i) => <img key={i} src={p.preview} alt="" />)}
