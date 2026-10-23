@@ -106,9 +106,9 @@ export default function Food() {
   const onScanned = useCallback(code => { setScanning(false); addCode(code) }, [])
   const onScanCancel = useCallback(() => setScanning(false), [])
 
-  // Inside the NOOP app the scan is the iPhone's own scanner (RPABarcodeScanner.swift); in a plain
-  // browser it is the in-page camera below.
-  const nativeScan = typeof window !== 'undefined' && window.webkit?.messageHandlers?.rpaStrap
+  // NOOP's own VisionKit scanner (RPABarcodeScanner.swift) showed a black preview on 2026-10-23, so the
+  // in-page camera scanner stays the default; ?nativescan=1 turns the native one on for testing.
+  const nativeScan = typeof window !== 'undefined' && /nativescan=1/.test(window.location.href) && window.webkit?.messageHandlers?.rpaStrap
   function scan() {
     if (!nativeScan) { setScanning(true); return }
     window.rpaScanResult = code => { window.rpaScanResult = null; if (code) addCode(code) }
