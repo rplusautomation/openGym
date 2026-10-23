@@ -6,7 +6,7 @@
 // the form to correct it (any entry of the last 14 days, the coach's estimates included).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { SB_BACKEND, foodAdd, foodUpdate, foodList, foodDelete, foodPhotoUpload } from '../lib/supabase-backend.js'
-import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode, scanFrame, itemsTotal, itemsText } from '../lib/food-log.js'
+import { MEALS, KINDS, mealLabel, defaultMeal, defaultKind, portion, lookupBarcode, openPhoto, encodePhoto, findBarcode, scanFrame, itemsTotal, itemsText, searchFoods } from '../lib/food-log.js'
 import { todayISO, isoOf } from '../lib/format.js'
 import { Segmented, NumberField, TextField, TextArea, Button } from '../components/ui.jsx'
 import Icon from '../components/Icon.jsx'
@@ -91,17 +91,39 @@ export default function Food() {
   const reload = () => foodList(7).then(r => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]))
   useEffect(() => { if (SB_BACKEND) reload() }, [])
 
-  async function addCode(code) {
-    setBusy('查询 ' + code + '…')
-    const prod = await lookupBarcode(code).catch(() => null)
-    const grams = prod && prod.kcal100 != null ? (prod.packG || prod.servingG || 100) : null
+  function addProduct(prod, code) {
+    const grams = prod && prod.kcal100 != null ? (prod.servingG || prod.packG || 100) : null
     const p = portion(prod, grams)
     const item = { key: Date.now() + Math.random(), barcode: code, product: prod, name: prod && prod.name, grams, kcal: p.kcal, protein: p.protein }
     set(s => ({ items: [...s.items, item] }))
+  }
+  async function addCode(code) {
+    setBusy('查询 ' + code + '…')
+    const prod = await lookupBarcode(code).catch(() => null)
+    addProduct(prod, code)
     setBusy(null)
   }
   const onScanned = useCallback(code => { setScanning(false); addCode(code) }, [])
   const onScanCancel = useCallback(() => setScanning(false), [])
+
+  // Inside the NOOP app the scan is the iPhone's own scanner (RPABarcodeScanner.swift); in a plain
+  // browser it is the in-page camera below.
+  const nativeScan = typeof window !== 'undefined' && window.webkit?.messageHandlers?.rpaStrap
+  function scan() {
+    if (!nativeScan) { setScanning(true); return }
+    window.rpaScanResult = code => { window.rpaScanResult = null; if (code) addCode(code) }
+    nativeScan.postMessage({ type: 'scan' })
+  }
+
+  // Search by name, for food without a barcode at hand.
+  const [q, setQ] = useState('')
+  const [hits, setHits] = useState(null)
+  async function search() {
+    if (!q.trim()) return
+    setBusy('搜索 ' + q.trim() + '…')
+    setHits(await searchFoods(q).catch(() => []))
+    setBusy(null)
+  }
 
   async function pick(files) {
     setErr(null)
@@ -197,9 +219,19 @@ export default function Food() {
       <input ref={fileRef} type="file" accept="image/*" multiple hidden
         onChange={e => { const fs = [...(e.target.files || [])]; e.target.value = ''; if (fs.length) pick(fs) }} />
       <div className="row" style={{ gap: 10 }}>
-        <Button variant="tinted" icon="qr" onClick={() => setScanning(true)} disabled={!!busy || scanning}>扫条码</Button>
+        <Button variant="tinted" icon="qr" onClick={scan} disabled={!!busy || scanning}>扫条码</Button>
         <Button variant="tinted" icon="camera" onClick={() => fileRef.current && fileRef.current.click()} disabled={!!busy}>拍照 / 相册</Button>
       </div>
+      <form className="row food-gap" style={{ gap: 8 }} onSubmit={e => { e.preventDefault(); search() }}>
+        <TextField type="search" enterKeyHint="search" placeholder="或者搜名字，比如 kartoffelsalat ja" value={q} onChange={e => { setQ(e.target.value); if (!e.target.value) setHits(null) }} />
+        <Button variant="tinted" size="sm" icon="magnifier" type="submit" disabled={!q.trim() || !!busy} aria-label="搜索" />
+      </form>
+      {hits && <div className="food-hits">
+        {hits.length === 0 && <div className="small muted">没找到，换个写法，或者拍照。</div>}
+        {hits.map(h => <button key={h.code} className="food-hit" onClick={() => { addProduct(h, h.code); setHits(null); setQ('') }}>
+          <span className="food-entry">{h.name}</span><span className="small muted">{h.kcal100} kcal/100 g{h.packG ? ` · ${h.packG} g` : ''}</span>
+        </button>)}
+      </div>}
       {busy && <div className="small muted" style={{ marginTop: 8 }}>{busy}</div>}
       {f.items.map(it => <FoodItem key={it.key} item={it}
         onGrams={g => { const p = portion(it.product, g); setItem(it.key, { grams: g, kcal: p.kcal, protein: p.protein }) }}

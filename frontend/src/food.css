@@ -18,3 +18,7 @@
 .food-thumb{position:relative;flex:none}
 .food-thumb .iconbtn{position:absolute;top:2px;right:2px;width:24px;height:24px;font-size:12px;background:rgba(0,0,0,.55);color:#fff}
 .food-editing{border-left:4px solid var(--orange)}
+.food-hits{display:flex;flex-direction:column;margin-top:8px;border-radius:var(--r-sm);overflow:hidden}
+.food-hit{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:9px 12px;background:var(--surface-2);border-top:1px solid var(--sep);color:var(--label)}
+.food-hit:first-child{border-top:none}
+.food form .field{flex:1;min-width:0}

@@ -34,7 +34,8 @@ export function parseProduct(p) {
   const n = p.nutriments || {}
   const num = v => (v == null || v === '' || isNaN(+v) ? null : +v)
   const kcal100 = num(n['energy-kcal_100g']) ?? (num(n.energy_100g) != null ? num(n.energy_100g) / 4.184 : null)
-  const name = [p.brands && String(p.brands).split(',')[0].trim(), p.product_name_de || p.product_name || p.generic_name]
+  const brand = Array.isArray(p.brands) ? p.brands[0] : p.brands && String(p.brands).split(',')[0]
+  const name = [brand && String(brand).trim(), p.product_name_de || p.product_name || p.generic_name]
     .filter(Boolean).join(' ')
   return {
     name: name || null,
@@ -52,6 +53,16 @@ export function portion(prod, g) {
     kcal: prod.kcal100 != null ? Math.round(prod.kcal100 * g / 100) : null,
     protein: prod.protein100 != null ? Math.round(prod.protein100 * g / 100) : null,
   }
+}
+
+// Foods by name ("kartoffelsalat ja"), best matches first: [{ code, ...parseProduct }]. Through the
+// site's /off-search proxy (netlify.toml); only products with a kcal value are kept.
+export async function searchFoods(q, fetchImpl = fetch) {
+  const fields = 'code,product_name,product_name_de,brands,product_quantity,serving_quantity,nutriments'
+  const r = await fetchImpl('/off-search?page_size=12&langs=de,en&fields=' + fields + '&q=' + encodeURIComponent(q.trim()))
+  if (!r.ok) return []
+  const j = await r.json()
+  return (j.hits || []).map(h => ({ code: h.code, ...parseProduct(h) })).filter(p => p.name && p.kcal100 != null)
 }
 
 export async function lookupBarcode(code, fetchImpl = fetch) {

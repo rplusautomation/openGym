@@ -50,3 +50,16 @@ describe('several foods in one entry', () => {
     expect(itemsText([], '')).toBe('')
   })
 })
+
+describe('food search', () => {
+  it('keeps matches with kcal and reads array brands', async () => {
+    const { searchFoods } = await import('./food-log.js')
+    const fetchImpl = async () => ({ ok: true, json: async () => ({ hits: [
+      { code: '4388860482003', brands: ['ja!'], product_name: 'Kartoffelsalat', product_quantity: 500, nutriments: { 'energy-kcal_100g': 162, proteins_100g: 1.5 } },
+      { code: '1', product_name: 'no kcal', nutriments: {} },
+    ] }) })
+    expect(await searchFoods('kartoffelsalat', fetchImpl)).toEqual([
+      { code: '4388860482003', name: 'ja! Kartoffelsalat', kcal100: 162, protein100: 1.5, packG: 500, servingG: null },
+    ])
+  })
+})
